@@ -6,7 +6,7 @@ class GeminiService {
   static const String _apiKeysPrefsKey = 'gemini_api_keys_list';
   static const String _activeKeyIdPrefsKey = 'gemini_active_key_id';
   static const String _preferredModelsPrefsKey = 'gemini_preferred_models';
-  static const String _defaultModel = 'gemini-1.5-flash';
+  static const String _defaultModel = 'gemini-2.0-flash-exp';
 
   GenerativeModel? _model;
   ChatSession? _chatSession;
@@ -17,6 +17,9 @@ class GeminiService {
   
   List<String> _preferredModels = [_defaultModel];
   String _currentModelName = _defaultModel;
+  
+  // Getter for current model name
+  String get currentModelName => _currentModelName;
 
   // Singleton pattern
   static final GeminiService _instance = GeminiService._internal();
@@ -62,12 +65,24 @@ class GeminiService {
   void _initModel([String? modelName]) {
     final key = _getActiveKey();
     if (key != null) {
-      _currentModelName = modelName ?? _currentModelName;
+      // Use provided model, or first preferred model, or current model
+      if (modelName != null) {
+        _currentModelName = modelName;
+      } else if (_preferredModels.isNotEmpty) {
+        _currentModelName = _preferredModels.first;
+      }
       _model = GenerativeModel(
         model: _currentModelName,
         apiKey: key,
       );
     }
+  }
+  
+  // Set the current model for chat
+  void setCurrentModel(String modelName) {
+    _currentModelName = modelName;
+    _initModel(modelName);
+    _chatSession = null; // Reset chat session to use new model
   }
 
   String? _getActiveKey() {
@@ -146,6 +161,11 @@ class GeminiService {
   List<String> getPreferredModels() => _preferredModels;
   
   bool isModelPreferred(String model) => _preferredModels.contains(model);
+  
+  // Reset chat session to start fresh (fixes context accumulation)
+  void resetChatSession() {
+    _chatSession = null;
+  }
 
   // --- Chat & Generation ---
 

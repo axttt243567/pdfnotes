@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
-import 'settings_page.dart';
 import 'chat_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -34,15 +33,6 @@ class _HomePageState extends State<HomePage> {
               IconButton(
                 icon: const Icon(Icons.notifications_outlined, color: AppColors.textSecondary),
                 onPressed: () {},
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings, color: AppColors.textSecondary),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SettingsPage()),
-                  );
-                },
               ),
             ],
           ),
