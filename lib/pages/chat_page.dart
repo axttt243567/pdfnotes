@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
+import '../services/gemini_service.dart';
+import '../services/pdf_service.dart';
+import '../widgets/model_selection_sheet.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -11,108 +14,103 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
-  // Dummy messages
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'isUser': false,
-      'text': 'Hello! I am your Gen AI assistant. What topic would you like to create notes for today?',
-    },
-    {
-      'isUser': true,
-      'text': 'I need some notes on Quantum Entanglement.',
-    },
-    {
-      'isUser': false,
-      'text': 'Great choice! I can generate a detailed summary, key formulas, or a historical overview. What style do you prefer?',
-    },
-  ];
+  final PdfService _pdfService = PdfService();
+
+  final List<Map<String, dynamic>> _messages = [];
+  bool _isLoading = false;
+  final GeminiService _geminiService = GeminiService();
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with a welcome message
+    _messages.add({
+        'isUser': false,
+        'text': 'Hello! I am your AI assistant. I can help you generate PDF notes. Tap the Thunder icon to create a PDF!'
+    });
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _handleSendMessage() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    _controller.clear();
+    setState(() {
+      _messages.add({'isUser': true, 'text': text});
+      _isLoading = true;
+    });
+    _scrollToBottom();
+
+    try {
+      final response = await _geminiService.sendMessage(text);
+      if (mounted) {
+        setState(() {
+          _messages.add({'isUser': false, 'text': response});
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.add({'isUser': false, 'text': 'Error: $e'});
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    }
+  }
 
   void _showAgentDetails() {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
+        padding: const EdgeInsets.all(24),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceHighlight,
-                borderRadius: BorderRadius.circular(2),
+            const Text(
+              'Gemini AI Assistant',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Powered by Google DeepMind\'s Gemini models. Capable of generating detailed study notes, answering questions, and creating structured PDF documents.',
+              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
             ),
             const SizedBox(height: 24),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.2),
-                    child: const Icon(Icons.auto_awesome, color: AppColors.primary, size: 32),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Gen AI Assistant',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
-                        ),
-                        Text(
-                          'Specialized in Academic Notes',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                children: [
-                   _buildDetailSection(
-                    'What I Can Do',
-                    [
-                      'Generate comprehensive PDF notes',
-                      'Summarize complex topics',
-                      'Create practice quizzes',
-                      'Format mathematical equations',
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _buildDetailSection(
-                    'Chat History',
-                    [
-                      'Active Session: Quantum Physics',
-                      'Last Session: Roman History',
-                      'Total Notes Generated: 12',
-                    ],
-                  ),
-
-                  const SizedBox(height: 40),
-                ],
-              ),
+            SizedBox(
+               width: double.infinity,
+               child: ElevatedButton(
+                 onPressed: () => Navigator.pop(context),
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: AppColors.primary,
+                   padding: const EdgeInsets.symmetric(vertical: 14),
+                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                 ),
+                 child: const Text('Close', style: TextStyle(color: Colors.white)),
+               ),
             ),
           ],
         ),
@@ -120,37 +118,49 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildDetailSection(String title, List<String> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...items.map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.check_circle_outline, size: 16, color: AppColors.primary),
-                  const SizedBox(width: 12),
-                  Text(
-                    item,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            )),
-      ],
+  void _showModelSelectionSheet() {
+    final preferredModels = _geminiService.getPreferredModels();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => ModelSelectionSheet(
+        availableModels: preferredModels,
+        onGenerate: (model, topic) => _generatePdf(topic, modelName: model),
+      ),
     );
+  }
+
+  Future<void> _generatePdf(String topic, {String? modelName}) async {
+    if (topic.isEmpty) return;
+
+    setState(() {
+      _messages.add({'isUser': false, 'text': 'Generating PDF for "$topic" using ${modelName ?? 'default model'}...'});
+      _isLoading = true;
+    });
+    _scrollToBottom();
+
+    try {
+      final jsonResponse = await _geminiService.generatePdfNotes(topic, modelName: modelName);
+      await _pdfService.generatePdf(jsonResponse);
+      
+      if (mounted) {
+        setState(() {
+          _messages.add({'isUser': false, 'text': '✅ PDF generated successfully!'});
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.add({'isUser': false, 'text': 'Failed to generate PDF: $e'});
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    }
   }
 
   @override
@@ -158,6 +168,7 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        // ... (existing app bar properties)
         backgroundColor: AppColors.background,
         elevation: 0,
         titleSpacing: 0,
@@ -216,8 +227,9 @@ class _ChatPageState extends State<ChatPage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
-            onPressed: () {},
+            icon: const Icon(Icons.flash_on, color: AppColors.primary),
+            tooltip: 'Generate PDF',
+            onPressed: _showModelSelectionSheet,
           ),
         ],
       ),
@@ -227,8 +239,17 @@ class _ChatPageState extends State<ChatPage> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
+              itemCount: _messages.length + (_isLoading ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == _messages.length) {
+                   return const Align(
+                     alignment: Alignment.centerLeft,
+                     child: Padding(
+                       padding: EdgeInsets.all(8.0),
+                       child: CircularProgressIndicator(),
+                     ),
+                   );
+                }
                 final message = _messages[index];
                 final isUser = message['isUser'] as bool;
                 return _buildMessageBubble(
@@ -246,30 +267,30 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildMessageBubble(String text, bool isUser) {
     return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isUser ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: isUser ? const Radius.circular(16) : const Radius.circular(4),
-            bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(16),
+        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+          decoration: BoxDecoration(
+            color: isUser ? AppColors.primary : AppColors.surface,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: isUser ? const Radius.circular(16) : const Radius.circular(4),
+              bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(16),
+            ),
+            border: isUser ? null : Border.all(color: AppColors.surfaceHighlight),
           ),
-          border: isUser ? null : Border.all(color: AppColors.surfaceHighlight),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isUser ? Colors.white : AppColors.textPrimary,
-            fontSize: 15,
+          child: Text(
+            text,
+            style: TextStyle(
+              color: isUser ? Colors.white : AppColors.textPrimary,
+              fontSize: 15,
+            ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildInputArea() {
@@ -304,6 +325,7 @@ class _ChatPageState extends State<ChatPage> {
                   borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
                 ),
               ),
+              onSubmitted: (_) => _handleSendMessage(),
             ),
           ),
           const SizedBox(width: 12),
@@ -313,22 +335,7 @@ class _ChatPageState extends State<ChatPage> {
               shape: BoxShape.circle,
             ),
             child: IconButton(
-              onPressed: () {
-                if (_controller.text.isNotEmpty) {
-                  setState(() {
-                    _messages.add({'isUser': true, 'text': _controller.text});
-                    _controller.clear();
-                  });
-                  // Simulate auto scroll
-                  Future.delayed(const Duration(milliseconds: 100), () {
-                    _scrollController.animateTo(
-                      _scrollController.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOut,
-                      );
-                  });
-                }
-              },
+              onPressed: _handleSendMessage,
               icon: const Icon(Icons.send, color: Colors.white),
             ),
           ),
@@ -337,3 +344,4 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 }
+

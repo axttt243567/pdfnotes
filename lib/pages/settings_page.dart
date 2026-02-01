@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../widgets/api_key_bottom_sheet.dart';
+import '../services/gemini_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -10,117 +11,124 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // Mock Data
-  final List<Map<String, dynamic>> _apiKeys = [
-    {'key': 'sk-proj...A1b2', 'alias': 'Personal Key', 'active': true},
-    {'key': 'sk-proj...9XzQ', 'alias': 'Work Project', 'active': false},
-  ];
+  // Data
+  List<Map<String, String>> _apiKeys = [];
+  String? _selectedKeyId;
+  List<String> _preferredModels = [];
+
+  String _maskKey(String key) {
+    if (key.length <= 8) return '****';
+    return '${key.substring(0, 4)}...${key.substring(key.length - 4)}';
+  }
 
   // Model Configuration
-  final List<String> _availableModels = [
-    'Gemini 1.5 Pro',
-    'Gemini 1.5 Flash',
-    'Gemini 1.0 Pro',
-    'Gemini Ultra'
-  ];
-  final List<String> _selectedModels = ['Gemini 1.5 Pro'];
+  final Map<String, String> _availableModels = {
+    'Gemini 1.5 Flash': 'gemini-1.5-flash',
+    'Gemini 1.5 Pro': 'gemini-1.5-pro',
+    'Gemini 2.0 Flash Exp': 'gemini-2.0-flash-exp',
+  };
 
   // App Settings
   bool _notifications = true;
 
-  void _openAddKeySheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => ApiKeyBottomSheet(
-        onSave: (key, alias) {
-          setState(() {
-            _apiKeys.add({'key': key, 'alias': alias, 'active': false});
-          });
-        },
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final service = GeminiService();
+    // Ensure service is initialized if not already (it usually is by main)
+    await service.init();
+    
+    if (mounted) {
+      setState(() {
+        _apiKeys = service.getApiKeys();
+        _selectedKeyId = service.activeKeyId;
+        _preferredModels = service.getPreferredModels();
+      });
+    }
+  }
+
+  void _addNewKey(String key, String alias) async {
+      await GeminiService().addApiKey(key, alias);
+      _loadData();
+  }
+
+  void _deleteKey(String id) async {
+    await GeminiService().removeApiKey(id);
+    _loadData();
+  }
+
+  void _selectKey(String id) async {
+    await GeminiService().selectApiKey(id);
+    _loadData();
+  }
+
+  void _toggleModel(String model) async {
+    await GeminiService().togglePreferredModel(model);
+    _loadData();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        title: Text(
-          'Settings',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textSecondary),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
+      // ... (existing scaffold props)
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Section 1: Gemini API Keys
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Gemini API Keys',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        // TODO: Implement Learn More navigation
-                      },
-                      child: const Text('Learn More'),
-                    ),
-                    TextButton(
-                      onPressed: _openAddKeySheet,
-                      child: const Text('Add Key'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            _buildSectionHeader('Gemini API Keys'),
             const SizedBox(height: 16),
-            ..._apiKeys.map((key) => _buildApiKeyItem(key)),
-
+            if (_apiKeys.isEmpty)
+                const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text("No API keys added yet.", style: TextStyle(color: AppColors.textSecondary)),
+                ),
+            ..._apiKeys.map(_buildApiKeyItem),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                    showModalBottomSheet(
+                        context: context, 
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => ApiKeyBottomSheet(
+                            onSave: (key, alias) => _addNewKey(key, alias),
+                        ),
+                    );
+                },
+                icon: const Icon(Icons.add, color: AppColors.primary),
+                label: const Text('Add New Key', style: TextStyle(color: AppColors.primary)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  side: const BorderSide(color: AppColors.surfaceHighlight),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            
             const SizedBox(height: 32),
             // Section 2: Choose Preferred Models
-            _buildSectionHeader('Choose Preferred Models'),
+            _buildSectionHeader('Preferred Models'),
+            const Text(
+                'Select models to be available in the chat menu.',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 8.0,
               runSpacing: 8.0,
-              children: _availableModels.map((model) {
-                final isSelected = _selectedModels.contains(model);
+              children: _availableModels.entries.map((entry) {
+                final isSelected = _preferredModels.contains(entry.value);
                 return FilterChip(
-                  label: Text(model),
+                  label: Text(entry.key),
                   selected: isSelected,
-                  onSelected: (bool selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedModels.add(model);
-                      } else {
-                        if (_selectedModels.length > 1) {
-                            _selectedModels.remove(model);
-                        }
-                      }
-                    });
-                  },
+                  onSelected: (bool selected) => _toggleModel(entry.value),
                   backgroundColor: AppColors.surface,
                   selectedColor: AppColors.primary.withValues(alpha: 0.2),
                   checkmarkColor: AppColors.primary,
@@ -222,8 +230,8 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildApiKeyItem(Map<String, dynamic> keyData) {
-    bool isActive = keyData['active'];
+  Widget _buildApiKeyItem(Map<String, String> keyData) {
+    bool isActive = keyData['id'] == _selectedKeyId;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -234,36 +242,58 @@ class _SettingsPageState extends State<SettingsPage> {
             ? Border.all(color: AppColors.primary, width: 1.5)
             : Border.all(color: AppColors.surfaceHighlight),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(
-            Icons.vpn_key,
-            color: isActive ? AppColors.primary : AppColors.textTertiary,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-                keyData['alias'],
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w600,
+            Row(
+                children: [
+                Icon(
+                    Icons.vpn_key,
+                    color: isActive ? AppColors.primary : AppColors.textTertiary,
                 ),
+                const SizedBox(width: 16),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                            Text(
+                                keyData['alias'] ?? 'Unknown',
+                                style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                ),
+                            ),
+                            Text(
+                                _maskKey(keyData['key'] ?? ''),
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                ),
+                            ),
+                        ],
+                    ),
+                ),
+                if (isActive)
+                    const Icon(Icons.check_circle, color: AppColors.success)
+                else
+                    Radio<String>(
+                        value: keyData['id']!,
+                        groupValue: _selectedKeyId,
+                        onChanged: (val) => _selectKey(val!),
+                        activeColor: AppColors.primary,
+                    ),
+                ],
             ),
-          ),
-          if (isActive)
-            const Icon(Icons.check_circle, color: AppColors.success)
-          else
-            TextButton(
-              onPressed: () {
-                 setState(() {
-                     for (var key in _apiKeys) {
-                         key['active'] = false;
-                     }
-                     keyData['active'] = true;
-                 });
-              },
-              child: const Text('Select'),
-            )
+            if (!isActive) ...[
+                const Divider(color: AppColors.surfaceHighlight),
+                Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                        onPressed: () => _deleteKey(keyData['id']!),
+                        icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                        label: const Text('Remove', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    ),
+                ),
+            ]
         ],
       ),
     );

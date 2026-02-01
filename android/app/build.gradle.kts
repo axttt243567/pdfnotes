@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.pdfnoteso1"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
