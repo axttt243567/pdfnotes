@@ -1,4 +1,4 @@
-# pdfnoteso1
+# pdfnotes
 
 A new Flutter project.
 

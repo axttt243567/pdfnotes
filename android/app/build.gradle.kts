@@ -6,8 +6,8 @@ plugins {
 }
 
 android {
-    namespace = "com.example.pdfnoteso1"
-    compileSdk = 36
+    namespace = "com.example.pdfnotes"
+    compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.pdfnoteso1"
+        applicationId = "com.example.pdfnotes"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
