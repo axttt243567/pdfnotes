@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'package:audioplayers/audioplayers.dart';
 
 import 'pdf_schema.dart';
 import 'pdf_generator.dart';
@@ -279,17 +277,27 @@ class _ChatPageState extends State<ChatPage> {
   bool _isTTSLoading = false;
   
   // Audio player state
-  final Map<int, String> _audioCache = {}; // Cache audio paths per message index
-  int? _audioMessageIndex;
+  int? _playingMessageIndex;
   bool _isAudioPlaying = false;
-  bool _isAudioReady = false; // True when audio is fully loaded
-  Duration _audioDuration = Duration.zero;
-  Duration _audioPosition = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _initializeChat();
+    
+    // Setup TTS callbacks
+    _ttsService.onStart = () {
+      if (mounted) setState(() => _isAudioPlaying = true);
+    };
+    
+    _ttsService.onCompletion = () {
+      if (mounted) {
+        setState(() {
+          _isAudioPlaying = false;
+          _playingMessageIndex = null;
+        });
+      }
+    };
   }
 
   Future<void> _initializeChat() async {
@@ -298,7 +306,7 @@ class _ChatPageState extends State<ChatPage> {
     if (ApiKeyStorage.apiKey != null && mounted) {
       _apiKeyController.text = ApiKeyStorage.apiKey!;
       _geminiService.initialize(ApiKeyStorage.apiKey!);
-      _ttsService.initialize(ApiKeyStorage.apiKey!);
+      // _ttsService.initialize(ApiKeyStorage.apiKey!); // Not needed for local TTS
       setState(() {});
     }
   }
@@ -306,7 +314,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _saveApiKey(String apiKey) async {
     await ApiKeyStorage.save(apiKey);
     _geminiService.initialize(apiKey);
-    _ttsService.initialize(apiKey);
+    // _ttsService.initialize(apiKey); // Not needed for local TTS
     if (mounted) {
       setState(() {});
     }
@@ -905,7 +913,6 @@ class _ChatPageState extends State<ChatPage> {
                       return _MessageBubble(
                         message: message,
                         isSelected: _selectedMessageIndex == index && !message.isUser,
-                        isTTSLoading: _isTTSLoading && _selectedMessageIndex == index,
                         onTap: message.isUser ? null : () {
                           setState(() {
                             _selectedMessageIndex = _selectedMessageIndex == index ? null : index;
@@ -921,136 +928,29 @@ class _ChatPageState extends State<ChatPage> {
                           );
                         },
                         onListen: () async {
-                          // If already playing this message, toggle play/pause
-                          if (_audioMessageIndex == index && _isAudioReady) {
-                            if (_isAudioPlaying) {
-                              await _ttsService.pause();
-                              setState(() => _isAudioPlaying = false);
-                            } else {
-                              await _ttsService.resume();
-                              setState(() => _isAudioPlaying = true);
-                            }
-                            return;
-                          }
-                          
-                          // Stop any current audio
-                          if (_audioMessageIndex != null) {
+                          if (_playingMessageIndex == index) {
                             await _ttsService.stop();
                             setState(() {
+                              _playingMessageIndex = null;
                               _isAudioPlaying = false;
-                              _isAudioReady = false;
-                              _audioPosition = Duration.zero;
-                              _audioDuration = Duration.zero;
                             });
-                          }
-                          
-                          // Check if we have cached audio for this message
-                          if (_audioCache.containsKey(index)) {
-                            // Use cached audio
-                            final cachedPath = _audioCache[index]!;
+                          } else {
+                            if (_playingMessageIndex != null) {
+                              await _ttsService.stop();
+                            }
                             setState(() {
-                              _audioMessageIndex = index;
-                              _isAudioReady = false;
+                              _playingMessageIndex = index;
+                              _isAudioPlaying = true;
                             });
-                            
-                            try {
-                              // Setup listeners first
-                              _ttsService.durationStream.listen((dur) {
-                                if (mounted) setState(() => _audioDuration = dur);
-                              });
-                              _ttsService.positionStream.listen((pos) {
-                                if (mounted) setState(() => _audioPosition = pos);
-                              });
-                              _ttsService.playerStateStream.listen((state) {
-                                if (mounted) {
-                                  setState(() => _isAudioPlaying = state == PlayerState.playing);
-                                }
-                              });
-                              
-                              // Load and play cached audio
-                              await _ttsService.play(cachedPath);
-                              setState(() {
-                                _isAudioReady = true;
-                                _isAudioPlaying = true;
-                              });
-                            } catch (e) {
-                              // If cached file fails, remove from cache and retry
-                              _audioCache.remove(index);
-                              setState(() => _audioMessageIndex = null);
-                            }
-                            return;
-                          }
-                          
-                          // Generate new audio
-                          setState(() {
-                            _isTTSLoading = true;
-                            _audioMessageIndex = index;
-                            _isAudioReady = false;
-                          });
-                          
-                          try {
-                            // Generate audio (full text, saved to temp)
-                            final audioPath = await _ttsService.generateAudio(message.text);
-                            if (audioPath != null && mounted) {
-                              // Cache the audio path for this message
-                              _audioCache[index] = audioPath;
-                              
-                              setState(() {
-                                _isTTSLoading = false;
-                              });
-                              
-                              // Setup listeners
-                              _ttsService.durationStream.listen((dur) {
-                                if (mounted) setState(() => _audioDuration = dur);
-                              });
-                              _ttsService.positionStream.listen((pos) {
-                                if (mounted) setState(() => _audioPosition = pos);
-                              });
-                              _ttsService.playerStateStream.listen((state) {
-                                if (mounted) {
-                                  setState(() => _isAudioPlaying = state == PlayerState.playing);
-                                }
-                              });
-                              
-                              // Start playing
-                              await _ttsService.play(audioPath);
-                              setState(() {
-                                _isAudioReady = true;
-                                _isAudioPlaying = true;
-                              });
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('TTS error: $e')),
-                              );
-                              setState(() {
-                                _isTTSLoading = false;
-                                _audioMessageIndex = null;
-                              });
-                            }
+                            await _ttsService.speak(message.text);
                           }
                         },
-                        hasAudio: _audioMessageIndex == index && _isAudioReady,
-                        isAudioPlaying: _audioMessageIndex == index && _isAudioPlaying,
-                        audioPosition: _audioMessageIndex == index ? _audioPosition : Duration.zero,
-                        audioDuration: _audioMessageIndex == index ? _audioDuration : Duration.zero,
-                        onSeek: (position) async {
-                          try {
-                            await _ttsService.seek(position);
-                          } catch (e) {
-                            // Ignore seek errors (e.g. timeout)
-                            debugPrint('Seek error: $e');
-                          }
-                        },
+                        isPlaying: _playingMessageIndex == index,
                         onStop: () async {
                           await _ttsService.stop();
                           setState(() {
-                            _audioMessageIndex = null;
-                            _isAudioReady = false;
+                            _playingMessageIndex = null;
                             _isAudioPlaying = false;
-                            _audioPosition = Duration.zero;
-                            _audioDuration = Duration.zero;
                           });
                         },
                       );
@@ -1134,41 +1034,26 @@ class _LoadingIndicator extends StatelessWidget {
   }
 }
 
+
 // Text message bubble widget with interactive actions
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isSelected;
-  final bool isTTSLoading;
   final VoidCallback? onTap;
   final VoidCallback? onCopy;
   final VoidCallback? onListen;
-  final bool hasAudio;
-  final bool isAudioPlaying;
-  final Duration audioPosition;
-  final Duration audioDuration;
-  final ValueChanged<Duration>? onSeek;
+  final bool isPlaying;
   final VoidCallback? onStop;
 
   const _MessageBubble({
     required this.message,
     this.isSelected = false,
-    this.isTTSLoading = false,
     this.onTap,
     this.onCopy,
     this.onListen,
-    this.hasAudio = false,
-    this.isAudioPlaying = false,
-    this.audioPosition = Duration.zero,
-    this.audioDuration = Duration.zero,
-    this.onSeek,
+    this.isPlaying = false,
     this.onStop,
   });
-
-  String _formatDuration(Duration d) {
-    final minutes = d.inMinutes.toString().padLeft(2, '0');
-    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1180,7 +1065,7 @@ class _MessageBubble extends StatelessWidget {
           GestureDetector(
             onTap: onTap,
             child: Container(
-              margin: EdgeInsets.only(bottom: isSelected || hasAudio ? 4 : 8),
+              margin: EdgeInsets.only(bottom: isSelected || isPlaying ? 4 : 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.75,
@@ -1199,87 +1084,36 @@ class _MessageBubble extends StatelessWidget {
               ),
             ),
           ),
-          // Audio player timeline
-          if (hasAudio && !message.isUser)
+          // Audio player controls (simple play/stop)
+          if (isPlaying && !message.isUser)
             Container(
               margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: Colors.grey.shade300),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Play/Pause button
-                  GestureDetector(
-                    onTap: onListen,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isAudioPlaying ? Icons.pause : Icons.play_arrow,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                    ),
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   const SizedBox(width: 8),
-                  // Timeline slider
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                      ),
-                      child: Slider(
-                        value: audioDuration.inMilliseconds > 0
-                            ? audioPosition.inMilliseconds.toDouble().clamp(0, audioDuration.inMilliseconds.toDouble())
-                            : 0,
-                        max: audioDuration.inMilliseconds > 0
-                            ? audioDuration.inMilliseconds.toDouble()
-                            : 1,
-                        onChanged: (value) {
-                          // Just for visual feedback during drag
-                        },
-                        onChangeEnd: (value) {
-                          // Only seek when user finishes dragging
-                          onSeek?.call(Duration(milliseconds: value.toInt()));
-                        },
-                      ),
-                    ),
-                  ),
-                  // Duration text
-                  Text(
-                    '${_formatDuration(audioPosition)} / ${_formatDuration(audioDuration)}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  // Stop button
+                  const Text('Speaking...', style: TextStyle(fontSize: 12)),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: onStop,
-                    child: Icon(
-                      Icons.close,
-                      size: 16,
-                      color: Colors.grey.shade600,
-                    ),
+                    child: const Icon(Icons.stop_circle_outlined, size: 20),
                   ),
                 ],
               ),
             ),
-          // Action icons for AI messages (only show if no audio player)
-          if (isSelected && !message.isUser && !hasAudio)
+          // Action icons for AI messages
+          if (isSelected && !message.isUser && !isPlaying)
             Padding(
               padding: const EdgeInsets.only(bottom: 8, left: 4),
               child: Row(
@@ -1292,10 +1126,9 @@ class _MessageBubble extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   _ActionIcon(
-                    icon: isTTSLoading ? Icons.hourglass_empty : Icons.volume_up_rounded,
+                    icon: Icons.volume_up_rounded,
                     tooltip: 'Listen',
-                    onTap: isTTSLoading ? null : onListen,
-                    isLoading: isTTSLoading,
+                    onTap: onListen,
                   ),
                 ],
               ),
@@ -1534,11 +1367,21 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
   }
 
   Future<Uint8List> _downloadPdf(String url) async {
-    final response = await http.get(Uri.parse(url));
-    if (response.statusCode == 200) {
-      return response.bodyBytes;
-    } else {
-      throw Exception('Failed to download PDF: ${response.statusCode}');
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final bytes = await response.fold<List<int>>(
+          <int>[],
+          (List<int> previous, List<int> element) => previous..addAll(element),
+        );
+        return Uint8List.fromList(bytes);
+      } else {
+        throw Exception('Failed to download PDF: ${response.statusCode}');
+      }
+    } finally {
+      client.close();
     }
   }
 

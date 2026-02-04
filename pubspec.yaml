@@ -36,12 +36,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   google_generative_ai: ^0.4.6
   pdfx: ^2.6.0
-  http: ^1.1.0
+
   shared_preferences: ^2.3.5
   pdf: ^3.11.0
   path_provider: ^2.1.1
-  audioplayers: ^6.1.0
-  flutter_tts: ^4.2.0
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   flutter_test:
