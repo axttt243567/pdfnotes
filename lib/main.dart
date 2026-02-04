@@ -10,6 +10,7 @@ import 'dart:io';
 import 'pdf_schema.dart';
 import 'pdf_generator.dart';
 import 'pdf_system_prompt.dart';
+import 'genpdfprompt_system.dart';
 import 'chat_profile_page.dart';
 
 void main() {
@@ -147,6 +148,9 @@ class GeminiService {
   ChatSession? _chatSession;
   String? _apiKey;
   String? _currentModel;
+  
+  // Dedicated session for prompt crafting
+  ChatSession? _promptCraftingSession;
 
   void initialize(String apiKey) {
     _apiKey = apiKey;
@@ -217,6 +221,40 @@ class GeminiService {
       _reinitializeModel();
     }
   }
+
+  /// Start a new prompt crafting session with the #genpdfprompt system prompt
+  void startPromptCraftingSession() {
+    if (_apiKey == null) return;
+    
+    final promptCraftingModel = GenerativeModel(
+      model: ModelPreferences.primaryModel,
+      apiKey: _apiKey!,
+      systemInstruction: Content.text(genpdfpromptSystemPrompt),
+    );
+    _promptCraftingSession = promptCraftingModel.startChat();
+  }
+
+  /// Send a message to the prompt crafting session
+  Future<String> sendPromptCraftingMessage(String message) async {
+    if (_promptCraftingSession == null) {
+      throw Exception('Prompt crafting session not started.');
+    }
+
+    try {
+      final response = await _promptCraftingSession!.sendMessage(Content.text(message));
+      return response.text ?? 'No response received.';
+    } catch (e) {
+      throw Exception('Failed to get prompt crafting response: $e');
+    }
+  }
+
+  /// Check if prompt crafting session is active
+  bool get hasPromptCraftingSession => _promptCraftingSession != null;
+
+  /// End the prompt crafting session
+  void endPromptCraftingSession() {
+    _promptCraftingSession = null;
+  }
 }
 
 class ChatPage extends StatefulWidget {
@@ -233,6 +271,7 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = [];
   final GeminiService _geminiService = GeminiService();
   bool _isLoading = false;
+  bool _isInPromptCraftingMode = false;
 
   @override
   void initState() {
@@ -477,6 +516,18 @@ class _ChatPageState extends State<ChatPage> {
     _controller.clear();
     _scrollToBottom();
 
+    // Check for #genpdfprompt command - start prompt crafting mode
+    if (text.toLowerCase().contains('#genpdfprompt')) {
+      await _handleGenPdfPromptCommand(text);
+      return;
+    }
+
+    // If in prompt crafting mode, continue the conversation
+    if (_isInPromptCraftingMode) {
+      await _continuePromptCrafting(text);
+      return;
+    }
+
     // Check for #genpdf command - generate PDF from AI
     if (text.toLowerCase().contains('#genpdf')) {
       final topic = text.replaceAll(RegExp(r'#genpdf', caseSensitive: false), '').trim();
@@ -546,6 +597,107 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollToBottom();
   }
+
+  /// Handle #genpdfprompt command - start the prompt crafting conversation
+  Future<void> _handleGenPdfPromptCommand(String initialMessage) async {
+    // Check if API key is set
+    if (!_geminiService.isInitialized) {
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: 'Please set your API key first. Tap the ⚡ icon to add your key.',
+            isUser: false,
+          ),
+        );
+        _isLoading = false;
+      });
+      _scrollToBottom();
+      return;
+    }
+
+    // Start prompt crafting session
+    _geminiService.startPromptCraftingSession();
+    setState(() {
+      _isInPromptCraftingMode = true;
+    });
+
+    try {
+      // Send initial message to start the conversation
+      final response = await _geminiService.sendPromptCraftingMessage(
+        "The user wants to create a personalized PDF prompt. Start the conversation by greeting them and asking about their PDF needs."
+      );
+      
+      setState(() {
+        _messages.add(ChatMessage(text: response, isUser: false));
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _messages.add(
+          ChatMessage(text: '❌ Error starting prompt crafting: ${e.toString()}', isUser: false),
+        );
+        _isLoading = false;
+        _isInPromptCraftingMode = false;
+      });
+      _geminiService.endPromptCraftingSession();
+    }
+    _scrollToBottom();
+  }
+
+  /// Continue the prompt crafting conversation
+  Future<void> _continuePromptCrafting(String userMessage) async {
+    // Check if user wants to exit prompt crafting mode
+    if (userMessage.toLowerCase().contains('#exit') || 
+        userMessage.toLowerCase().contains('#done') ||
+        userMessage.toLowerCase().contains('#cancel')) {
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: '✅ Exited prompt crafting mode. You can start again with #genpdfprompt',
+            isUser: false,
+          ),
+        );
+        _isLoading = false;
+        _isInPromptCraftingMode = false;
+      });
+      _geminiService.endPromptCraftingSession();
+      _scrollToBottom();
+      return;
+    }
+
+    try {
+      final response = await _geminiService.sendPromptCraftingMessage(userMessage);
+      
+      // Check if the response contains a final #genpdf command (conversation complete)
+      if (response.contains('#genpdf') && response.contains('```')) {
+        // The AI has provided a final prompt, offer to exit crafting mode
+        setState(() {
+          _messages.add(ChatMessage(text: response, isUser: false));
+          _messages.add(
+            ChatMessage(
+              text: '💡 *Tip: Copy the #genpdf command above and paste it to generate your PDF. Type #done to exit prompt crafting mode, or continue chatting to refine further.*',
+              isUser: false,
+            ),
+          );
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _messages.add(ChatMessage(text: response, isUser: false));
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _messages.add(
+          ChatMessage(text: '❌ Error: ${e.toString()}', isUser: false),
+        );
+        _isLoading = false;
+      });
+    }
+    _scrollToBottom();
+  }
+
 
   /// Handle #genpdf command - generate PDF from AI
   /// Extract JSON from AI response that may contain markdown or extra text

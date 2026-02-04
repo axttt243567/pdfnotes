@@ -36,12 +36,48 @@ class _ChatProfilePageState extends State<ChatProfilePage> {
       title: 'Introduction to Machine Learning',
       description: 'Comprehensive notes covering ML fundamentals, algorithms, and applications',
       prompt: '#genpdf Introduction to Machine Learning with examples of supervised and unsupervised learning',
-      assetPath: null, // Will use generated PDF in future
+      assetPath: null,
     ),
     DemoShowcase(
       title: 'Flutter State Management',
       description: 'Guide to state management patterns in Flutter apps',
       prompt: '#genpdf Flutter State Management - Provider, Riverpod, and BLoC patterns explained',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Data Science Fundamentals',
+      description: 'Statistics, data visualization, and analysis techniques',
+      prompt: '#genpdf Data Science Fundamentals - statistics basics, data visualization with Python, and exploratory data analysis',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Web Development Guide',
+      description: 'HTML, CSS, JavaScript and modern frameworks',
+      prompt: '#genpdf Modern Web Development - HTML5, CSS3, JavaScript ES6+, and React/Vue basics',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Study Notes Template',
+      description: 'Academic note-taking strategies and templates',
+      prompt: '#genpdf Effective Study Notes - Cornell method, mind mapping, and active recall techniques',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Business Plan Essentials',
+      description: 'Startup planning, market analysis, and financials',
+      prompt: '#genpdf Business Plan Guide - executive summary, market analysis, financial projections, and pitch preparation',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Research Paper Summary',
+      description: 'How to analyze and summarize academic papers',
+      prompt: '#genpdf Research Paper Analysis - reading strategies, critical evaluation, and summary writing techniques',
+      assetPath: null,
+    ),
+    DemoShowcase(
+      title: 'Creative Writing Tips',
+      description: 'Storytelling, character development, and dialogue',
+      prompt: '#genpdf Creative Writing Masterclass - storytelling structure, character development, dialogue, and worldbuilding',
       assetPath: null,
     ),
   ];
