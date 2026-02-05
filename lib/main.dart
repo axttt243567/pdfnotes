@@ -4,7 +4,10 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'dart:io';
+import 'dart:convert';
 
 import 'pdf_schema.dart';
 import 'pdf_generator.dart';
@@ -108,7 +111,7 @@ class MyApp extends StatelessWidget {
 }
 
 // Message types enum
-enum MessageType { text, pdf }
+enum MessageType { text, pdf, mermaid }
 
 // Chat message model
 class ChatMessage {
@@ -116,12 +119,14 @@ class ChatMessage {
   final bool isUser;
   final MessageType type;
   final PdfInfo? pdfInfo;
+  final MermaidInfo? mermaidInfo;
 
   ChatMessage({
     required this.text,
     required this.isUser,
     this.type = MessageType.text,
     this.pdfInfo,
+    this.mermaidInfo,
   });
 }
 
@@ -139,6 +144,19 @@ class PdfInfo {
     required this.pages,
     this.assetPath,
     this.url,
+  });
+}
+
+// Mermaid diagram info model
+class MermaidInfo {
+  final String title;
+  final String description;
+  final String diagramCode;
+
+  MermaidInfo({
+    required this.title,
+    required this.description,
+    required this.diagramCode,
   });
 }
 
@@ -559,6 +577,12 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
 
+    // Check for #mermaid dev test keyword
+    if (text.toLowerCase().contains('#mermaid')) {
+      await _handleMermaidCommand();
+      return;
+    }
+
     // Check for #pdf dev test keyword
     if (text.toLowerCase().contains('#pdf')) {
       await _handlePdfCommand();
@@ -614,6 +638,49 @@ class _ChatPageState extends State<ChatPage> {
             description: 'The original Transformer paper (NIPS 2017)',
             pages: 15,
             assetPath: 'assets/NIPS-2017-attention-is-all-you-need-Paper.pdf',
+          ),
+        ),
+      );
+      _isLoading = false;
+    });
+    _scrollToBottom();
+  }
+
+  Future<void> _handleMermaidCommand() async {
+    // Simulate a small delay for demo purposes
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Demo Mermaid diagram code - shows the AI chat message flow
+    const demoMermaidCode = '''
+graph TD
+    A[📝 User Input] --> B{Is Dev Keyword?}
+    B -->|#pdf| C[📄 PDF Handler]
+    B -->|#mermaid| D[📊 Mermaid Handler]
+    B -->|#genpdf| E[🤖 AI PDF Generator]
+    B -->|No keyword| F[💬 AI Chat Response]
+    C --> G[Display PDF Card]
+    D --> H[Display Mermaid Diagram]
+    E --> I[Generate & Display PDF]
+    F --> J[Display Text Response]
+    
+    style A fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style B fill:#2196F3,stroke:#1565C0,color:#fff
+    style C fill:#FF9800,stroke:#EF6C00,color:#fff
+    style D fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style E fill:#00BCD4,stroke:#00838F,color:#fff
+    style F fill:#607D8B,stroke:#37474F,color:#fff
+''';
+
+    setState(() {
+      _messages.add(
+        ChatMessage(
+          text: "Here's a demo Mermaid diagram showing the message flow:",
+          isUser: false,
+          type: MessageType.mermaid,
+          mermaidInfo: MermaidInfo(
+            title: 'AI Chat Message Flow',
+            description: 'How different keywords are processed',
+            diagramCode: demoMermaidCode,
           ),
         ),
       );
@@ -853,6 +920,13 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  void _openMermaidViewer(MermaidInfo mermaidInfo) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => MermaidViewerPage(mermaidInfo: mermaidInfo)),
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -908,6 +982,12 @@ class _ChatPageState extends State<ChatPage> {
                         return _PdfCard(
                           message: message,
                           onTap: () => _openPdfViewer(message.pdfInfo!),
+                        );
+                      }
+                      if (message.type == MessageType.mermaid) {
+                        return _MermaidCard(
+                          message: message,
+                          onTap: () => _openMermaidViewer(message.mermaidInfo!),
                         );
                       }
                       return _MessageBubble(
@@ -1439,6 +1519,352 @@ class _PdfViewerPageState extends State<PdfViewerPage> {
                     Center(child: Text('Error: $error')),
               ),
             ),
+    );
+  }
+}
+
+// Mermaid card widget for AI Mermaid diagram responses
+class _MermaidCard extends StatelessWidget {
+  final ChatMessage message;
+  final VoidCallback onTap;
+
+  const _MermaidCard({required this.message, required this.onTap});
+
+  String _getPreviewUrl(String code) {
+    // Remove emojis for preview compatibility
+    var cleanCode = code.replaceAll(RegExp(r'[^\x00-\x7F]+'), '');
+    // Remove style lines for preview simplicity and better success rate in static generator
+    cleanCode = cleanCode.replaceAll(RegExp(r'style.*$', multiLine: true), '');
+    
+    final jsonMap = {
+      'code': cleanCode,
+      'mermaid': {
+        'theme': 'neutral',
+      }
+    };
+    final jsonString = jsonEncode(jsonMap);
+    final base64String = base64Encode(utf8.encode(jsonString));
+    return 'https://mermaid.ink/img/$base64String';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mermaidInfo = message.mermaidInfo!;
+    final previewUrl = _getPreviewUrl(mermaidInfo.diagramCode);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.85, 
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (message.text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    message.text,
+                    style: const TextStyle(color: Colors.black87),
+                  ),
+                ),
+              ),
+            Card(
+              elevation: 4,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: InkWell(
+                onTap: onTap,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Preview Image Header
+                    Container(
+                      height: 150,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          bottom: BorderSide(color: Colors.grey.shade200),
+                        ),
+                      ),
+                      child: Image.network(
+                        previewUrl,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.center, 
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                              strokeWidth: 2,
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                           return Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.broken_image, 
+                                  color: Colors.grey.shade400, size: 32),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "Preview unavailable",
+                                  style: TextStyle(
+                                    fontSize: 12, 
+                                    color: Colors.grey.shade500
+                                  ),
+                                )
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    // Card Content
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.purple.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.account_tree,
+                              color: Colors.purple.shade700,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  mermaidInfo.title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  mermaidInfo.description,
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.fullscreen,
+                            color: Colors.grey.shade400,
+                            size: 24,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Mermaid Viewer Page using WebView
+class MermaidViewerPage extends StatefulWidget {
+  final MermaidInfo mermaidInfo;
+
+  const MermaidViewerPage({super.key, required this.mermaidInfo});
+
+  @override
+  State<MermaidViewerPage> createState() => _MermaidViewerPageState();
+}
+
+class _MermaidViewerPageState extends State<MermaidViewerPage> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (String url) {
+            setState(() => _isLoading = false);
+          },
+          onWebResourceError: (error) {
+            setState(() => _isLoading = false);
+          },
+        ),
+      )
+      ..loadHtmlString(_getMermaidHtml());
+  }
+
+  String _getMermaidHtml() {
+    // Use the diagram code directly - mermaid handles escaping
+    final diagramCode = widget.mermaidInfo.diagramCode;
+
+    return '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+  <title>${widget.mermaidInfo.title}</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .header {
+      color: white;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .header h1 {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 0.875rem;
+      opacity: 0.9;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+    .mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${widget.mermaidInfo.title}</h1>
+    <p>${widget.mermaidInfo.description}</p>
+  </div>
+  <div class="container">
+    <pre class="mermaid">
+$diagramCode
+    </pre>
+  </div>
+  <script>
+    mermaid.initialize({ 
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose',
+      flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true,
+        curve: 'basis'
+      }
+    });
+  </script>
+</body>
+</html>
+''';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.mermaidInfo.title),
+        centerTitle: true,
+        backgroundColor: Colors.purple.shade600,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              setState(() => _isLoading = true);
+              _controller.reload();
+            },
+            tooltip: 'Reload',
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          Platform.isAndroid
+              ? WebViewWidget.fromPlatformCreationParams(
+                  params: AndroidWebViewWidgetCreationParams(
+                    controller: _controller.platform,
+                    displayWithHybridComposition: true,
+                  ),
+                )
+              : WebViewWidget(controller: _controller),
+          if (_isLoading)
+            Container(
+              color: Colors.white,
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Loading diagram...'),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
